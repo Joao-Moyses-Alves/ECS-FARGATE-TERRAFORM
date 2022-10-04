@@ -1,0 +1,58 @@
+name: Deploy to Amazon ECS
+
+on:
+  push:
+    branches: [ "main" ]
+
+
+permissions:
+      id-token: write   # This is required for requesting the JWT
+      contents: read    # This is required for actions/checkout
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Configure AWS credentials from Test account
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        role-to-assume: arn:aws:iam::112353101766:role/github-action-role
+        aws-region: us-east-1
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: 112353101766.dkr.ecr.us-east-1.amazonaws.com/clicksign-ecr-dev
+        IMAGE_TAG: latest
+      run: |
+        # Build a docker container and
+        # push it to ECR so that it can
+        # be deployed to ECS.
+        docker build -t clicksign-ecr-dev .
+        docker tag clicksign-ecr-dev:latest 112353101766.dkr.ecr.us-east-1.amazonaws.com/clicksign-ecr-dev:latest
+        docker push 112353101766.dkr.ecr.us-east-1.amazonaws.com/clicksign-ecr-dev:latest
+
+    - name: Fill in the new image ID in the Amazon ECS task definition
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: task-definition.json
+        container-name: clicksign
+        image: 112353101766.dkr.ecr.us-east-1.amazonaws.com/clicksign-ecr-dev:latest
+
+    - name: Deploy Amazon ECS task definition
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: task-definition.json
+        service: clicksign-service-dev
+        cluster: clicksign-cluster-dev
